@@ -19,7 +19,7 @@ val stationColumnList= List(
 val stationSchema=StructType(stationColumnList)
 val stationDF=spark.read.option("header","true").
      schema(stationSchema).
-     csv("weather/isd-history.csv")
+     csv("flightdelay/weather/isd-history.csv")
 //Total number of weather stations = 30046
 stationDF.count
 stationDF.show
@@ -62,7 +62,7 @@ case class Weather(StationNumber: Int,
                   )
 
 // Notice in map function, skipped columns not in interest
-val weatherDF =spark.read.textFile("weather/gsod_1988.txt").
+val weatherDF =spark.read.textFile("flightdelay/weather/gsod_*.txt").
   map(l => (l.substring(0, 6).trim(), 
              l.substring(7, 12).trim(), 
              l.substring(14,18).trim(), 
@@ -90,20 +90,20 @@ val weatherDF =spark.read.textFile("weather/gsod_1988.txt").
 weatherDF.count
 weatherDF.show
 
-//weatherDF.write.saveAsTable("flights.weather")
+//weatherDF.write.saveAsTable("flightdelay.weather")
 //Validate the year has all 12 months
-weatherDF.groupBy("Month").count.show 
+weatherDF.groupBy("Year").count.show 
 
 //********************************************************************************
-// join DFs and gether daily weather only for US airports
+// join DFs and get daily weather only for US airports
 //********************************************************************************
-val aptWtherDF=weatherDF.join(airportDF, weatherDF("StationNumber")===airportDF("max(USAF)")).
+val airportWtherDF=weatherDF.join(airportDF, weatherDF("StationNumber")===airportDF("max(USAF)")).
   select("AirportCode", "Year", "Month","Day", 
          "Temp","Visibility","WindSpeed","MaxWindSpeed",
          "Precipitation","SnowDepth","Fog","Rain","Snow","Hail","Thunder","Tornado")
 //number of airport weather data = 324419
-aptWtherDF.count
-aptWtherDF.show
+airportWtherDF.count
+airportWtherDF.show
 
 //********************************************************************************
 // Join with flight on origin airport and YMD
@@ -112,13 +112,13 @@ val columnList= List( StructField("Year", IntegerType),
      StructField("Month", IntegerType),
      StructField("DayOfMonth", IntegerType),
      StructField("DayOfWeek", IntegerType),
-     StructField("DepTime", IntegerType),
-     StructField("CRSDepTime", IntegerType),
-     StructField("ArrTime", IntegerType),
-     StructField("CRSArrTime", IntegerType),
+     StructField("DepTime", StringType),
+     StructField("CRSDepTime", StringType),
+     StructField("ArrTime", StringType),
+     StructField("CRSArrTime", StringType),
      StructField("UniqueCarrier", StringType),
      StructField("FlightNum", StringType),
-     StructField("TailNum", IntegerType), 
+     StructField("TailNum", StringType), 
      StructField("ActualElaspedTime", IntegerType),
      StructField("CRSElapsedTime", IntegerType),
      StructField("AirTime", IntegerType), 
@@ -144,30 +144,34 @@ val flightDF=spark.read.option("header","true").
      option("nullValue","NA").option("nanValue","NA").
      option("quote", null).option("mode","DROPMALFORMED").
      schema(flightSchema).
-     csv("flights/1988.csv")
+     csv("flightdelay/flights/*.csv")
 //US has 5 million flights a year : 1988 - 5,202,096
 flightDF.count 
-flightDF.show
-flightDF.write.mode("overwrite").saveAsTable("flights.flights")
+flightDF.groupBy("Year").count.show
+//flightDF.write.mode("overwrite").saveAsTable("flightdelay.flights")
+
 
 //********************************************************************************
 // Save dataframe to parquet file for later analytics
 //********************************************************************************
-val resultDF = flightDF.join(aptWtherDF, flightDF("Origin")===aptWtherDF("AirportCode") and 
-                            flightDF("Year")===aptWtherDF("Year") and
-                            flightDF("Month")===aptWtherDF("Month") and
-                            flightDF("DayOfMonth")===aptWtherDF("Day")).
-    select(flightDF("Year"), flightDF("Month"), aptWtherDF("Day"),
+val resultDF = flightDF.join(airportWtherDF, flightDF("Origin")===airportWtherDF("AirportCode") and 
+                            flightDF("Year")===airportWtherDF("Year") and
+                            flightDF("Month")===airportWtherDF("Month") and
+                            flightDF("DayOfMonth")===airportWtherDF("Day")).
+    select(flightDF("Year"), flightDF("Month"), airportWtherDF("Day"),
           flightDF("DayOfWeek"), flightDF("DepTime"), flightDF("CRSDepTime")
           , flightDF("ArrTime"), flightDF("CRSArrTime"), flightDF("UniqueCarrier")
           , flightDF("FlightNum"), flightDF("DepDelay"), flightDF("Origin")
           , flightDF("TaxiOut"), flightDF("Cancelled"), flightDF("CancellationCode")
           , flightDF("CarrierDelay"), flightDF("WeatherDelay"),flightDF("NASDelay"), flightDF("SecurityDelay")
-          , flightDF("LateAircraftDelay"),aptWtherDF("Temp"),aptWtherDF("Visibility"),aptWtherDF("WindSpeed")
-          ,aptWtherDF("MaxWindSpeed"),aptWtherDF("Precipitation"),aptWtherDF("SnowDepth"),aptWtherDF("Fog"),aptWtherDF("Rain")
-          ,aptWtherDF("Snow"),aptWtherDF("Hail"),aptWtherDF("Thunder"),aptWtherDF("Tornado"))
+          , flightDF("LateAircraftDelay"),airportWtherDF("Temp"),airportWtherDF("Visibility"),airportWtherDF("WindSpeed")
+          ,airportWtherDF("MaxWindSpeed"),airportWtherDF("Precipitation"),airportWtherDF("SnowDepth"),airportWtherDF("Fog"),airportWtherDF("Rain")
+          ,airportWtherDF("Snow"),airportWtherDF("Hail"),airportWtherDF("Thunder"),airportWtherDF("Tornado"))
 //flights with origin airport weather - 4,119,538 for 1988
 resultDF.count 
 resultDF.printSchema
-resultDF.write.mode("overwrite").partitionBy("Year","Month").saveAsTable("flights.flights_originweather")
+
+val spark = SparkSession.builder.getOrCreate()
+spark.sql("create database flightdelay")
+resultDF.write.mode("overwrite").partitionBy("Year","Month").saveAsTable("flightdelay.flights_originweather")
 

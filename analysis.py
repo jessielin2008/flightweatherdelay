@@ -19,7 +19,7 @@ correlDF = spark.sql("""select year, month, count(*) as totalNumFlights, sum(del
                 case when DepDelay > 0 and Cancelled = 0 and hail='1' then 1 else 0 end as hailDelay, 
                 case when DepDelay > 0 and Cancelled = 0 and thunder='1' then 1 else 0 end as thunderDelay, 
                 case when DepDelay > 0 and Cancelled = 0 and tornado='1' then 1 else 0 end as tornadoDelay 
-                from flights.flights_OriginWeather 
+                from flightdelay.flights_OriginWeather 
             ) as b group by year, month 
 """)
 
@@ -44,8 +44,9 @@ correlDF2 = spark.sql("""select year, month, count(*) as totalNumFlights, sum(de
                 case when DepDelay > 0 and Cancelled = 0 and hail='1' then 1 else 0 end as hailDelay, 
                 case when DepDelay > 0 and Cancelled = 0 and thunder='1' then 1 else 0 end as thunderDelay, 
                 case when DepDelay > 0 and Cancelled = 0 and tornado='1' then 1 else 0 end as tornadoDelay 
-                from flights.flights_OriginWeather 
+                from flightdelay.flights_OriginWeather 
             ) as b group by year, month 
+          order by sum(wdelay) desc
 """)
 
 correlDF2.show()
