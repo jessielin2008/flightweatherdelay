@@ -1,10 +1,83 @@
 from pyspark.sql import SparkSession
-#  Correlation between flight delay and weather conditions
+import pandas as pd
+import matplotlib.pyplot as plt
+
 #  ********************************************************************************
 
-# resultDF.groupBy("Year","Month").count.sort($"count".desc).show
+# verify pandas version
+pd.__version__
 
-spark = SparkSession.builder.appName("FlightDelayAnalysis").getOrCreate()
+spark = SparkSession.builder.appName("FlightDelayVisualization").getOrCreate()
+
+# table format
+delayDF = spark.sql("select * from flightdelay.flights_OriginWeather limit 10000")
+delayDF.head()
+
+plt.style.use('ggplot')
+
+# # Flight Depature Delay distribution
+# Shows that majority of flights departure earlier than planned!
+# Method 1 using spark for heavy lifting
+depDelayDF = spark.sql("select DepDelay from flightdelay.flights_OriginWeather limit 10000")
+hists = depDelayDF.select("DepDelay").rdd.flatMap(
+    lambda row: row
+).histogram(30)
+
+
+data = {
+    'bins': hists[0][:-1],
+    'freq': hists[1]
+}
+plt.bar(data['bins'], data['freq'], width = 8)
+
+
+weatherDelayDF = spark.sql("select WeatherDelay from flightdelay.flights_OriginWeather where WeatherDelay > 0 limit 10000")
+hists = weatherDelayDF.select("WeatherDelay").rdd.flatMap(
+    lambda row: row
+).histogram(30)
+data = {
+    'bins': hists[0][:-1],
+    'freq': hists[1]
+}
+plt.bar(data['bins'], data['freq'], width = 8)
+
+# Scatter plot Departure Delay and Weather Delay
+delayP = spark.sql("select coalesce(WeatherDelay,0) as weatherDelay, coalesce(DepDelay,0) as depDelay  \
+                   from flightdelay.flights_OriginWeather where WeatherDelay >0 limit 10000").toPandas()
+delayP.describe()
+ax = delayP.plot.scatter(x=0, y=1)
+#ax.set_aspect('equal')
+
+## box plot between weather Delay and weather conditions
+wdDetailsDF =spark.sql("select case when Rain ='1' then 1 else 0 end as RainDelay,  \
+                          case when snow ='1' then weatherDelay else 0 end as snowDelay, \
+                          case when hail ='1' then weatherDelay else 0 end as HailDelay, \
+                          case when thunder ='1' then weatherDelay else 0 end as ThunderDelay , \
+                          case when tornado ='1' then weatherDelay else 0 end as TornadoDelay \
+                      from flightdelay.flights_OriginWeather where weatherDelay > 0 limit 100000").toPandas()
+#plt.xLabel="Minutes"
+#wdDetailsDF.boxplot(ax=ax )
+#axy = wdDetailsDF.boxplot()
+#axy.set_ylabel="Minutes"
+#wdDetailsDF.boxplot(ax=axy )
+#wdDetailsDF.index.name = "test"
+wdDetailsDF.boxplot()
+
+# seaborn violinplot shows more information than boxplot. will try next time
+
+# ## Snow Delay and SnowDepth
+snowDelayDF =spark.sql("select snowDepth, snowDelay from (select SnowDepth, \
+                          case when snow ='1' then weatherDelay else 0 end as snowDelay  \
+                      from flightdelay.flights_OriginWeather ) where snowDelay > 0 limit 100000").toPandas()
+snowDelayDF.plot.scatter(x=0, y=1)
+
+# ## Snow Delay and SnowDepth
+rainDelayDF =spark.sql("select Precipitation, rainDelay from (select Precipitation, \
+                          case when rain ='1' and fog='0' and snow='0' and hail='0' and thunder='0' then weatherDelay else 0 end as rainDelay  \
+                      from flightdelay.flights_OriginWeather ) where rainDelay > 0 ").toPandas()
+rainDelayDF.plot.scatter(x=0, y=1)
+
+# Correlation between 
 correlDF = spark.sql("""select year, month, count(*) as totalNumFlights, sum(delay), sum(wdelay),
             round(sum(fogDelay)/sum(delay)*100) as pfogDelay, 
             round(sum(snowDelay)/sum(delay)*100) as psnowDelay, 
@@ -50,3 +123,4 @@ correlDF2 = spark.sql("""select year, month, count(*) as totalNumFlights, sum(de
 """)
 
 correlDF2.show()
+

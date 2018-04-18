@@ -53,12 +53,12 @@ case class Weather(StationNumber: Int,
                    MaxWindSpeed:Float,
                    Precipitation:Float,
                    SnowDepth:Float,
-                   Fog:String,
-                   Rain:String, //Rain or Drizzle
-                   Snow:String, //Snow or Ice Pellets
-                   Hail:String,
-                   Thunder:String,
-                   Tornado:String //Tornado or Funnel Cloud
+                   Fog:Int,
+                   Rain:Int, //Rain or Drizzle
+                   Snow:Int, //Snow or Ice Pellets
+                   Hail:Int,
+                   Thunder:Int,
+                   Tornado:Int //Tornado or Funnel Cloud
                   )
 
 // Notice in map function, skipped columns not in interest
@@ -83,7 +83,7 @@ val weatherDF =spark.read.textFile("flightdelay/weather/gsod_*.txt").
   map({ case (st, wban, y, m, d, t, v, ws, mws, p, sd, f, r, s, h, th, to) => 
         Weather(st.toInt, wban, y.toInt, m.toInt, d.toInt,
                 t.toFloat, v.toFloat, ws.toFloat, mws.toFloat,
-                p.toFloat, sd.toFloat, f, r, s,h, th, to)}).
+                p.toFloat, sd.toFloat, f.toInt, r.toInt, s.toInt,h.toInt, th.toInt, to.toInt)}).
   where("StationNumber != '999999'").
   toDF
 // number of weather data in the year = 324419
@@ -112,10 +112,10 @@ val columnList= List( StructField("Year", IntegerType),
      StructField("Month", IntegerType),
      StructField("DayOfMonth", IntegerType),
      StructField("DayOfWeek", IntegerType),
-     StructField("DepTime", StringType),
-     StructField("CRSDepTime", StringType),
-     StructField("ArrTime", StringType),
-     StructField("CRSArrTime", StringType),
+     StructField("DepTime", IntegerType),
+     StructField("CRSDepTime", IntegerType),
+     StructField("ArrTime", IntegerType),
+     StructField("CRSArrTime", IntegerType),
      StructField("UniqueCarrier", StringType),
      StructField("FlightNum", StringType),
      StructField("TailNum", StringType), 
@@ -167,11 +167,13 @@ val resultDF = flightDF.join(airportWtherDF, flightDF("Origin")===airportWtherDF
           , flightDF("LateAircraftDelay"),airportWtherDF("Temp"),airportWtherDF("Visibility"),airportWtherDF("WindSpeed")
           ,airportWtherDF("MaxWindSpeed"),airportWtherDF("Precipitation"),airportWtherDF("SnowDepth"),airportWtherDF("Fog"),airportWtherDF("Rain")
           ,airportWtherDF("Snow"),airportWtherDF("Hail"),airportWtherDF("Thunder"),airportWtherDF("Tornado"))
+
 //flights with origin airport weather - 4,119,538 for 1988
 resultDF.count 
 resultDF.printSchema
 
 val spark = SparkSession.builder.getOrCreate()
-spark.sql("create database flightdelay")
+spark.sql("create database if not exists flightdelay")
 resultDF.write.mode("overwrite").partitionBy("Year","Month").saveAsTable("flightdelay.flights_originweather")
+// resultDF.groupBy("Year","Month").count.sort($"count".desc).show
 
