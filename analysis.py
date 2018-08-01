@@ -1,38 +1,35 @@
 from pyspark.sql import SparkSession
 import pandas as pd
 import matplotlib.pyplot as plt
+import seaborn as sb
 
 #  ********************************************************************************
-
-# verify pandas version
+# # verify pandas version
 pd.__version__
 
 spark = SparkSession.builder.appName("FlightDelayVisualization").getOrCreate()
 
-# table format
-delayDF = spark.sql("select * from flightdelay.flights_OriginWeather limit 10000")
+# # WeatherDelay by year
+weatherDF = spark.sql("""
+select year, sum(nullval), sum(notnullval), count(*) from (
+select year, case when weatherDelay is null then 1 else 0 end as nullval, 
+case when weatherDelay is not null then 1 else 0 end as notnullval
+from flightdelay.flights_OriginWeather
+) tmp group by year order by year""")
+weatherDF.show()
+
+# # Tune sample percentage to 1% = 400K flights between 2003 and 2008
+# table format. sample without replacement
+delayDF = spark.sql("select * from flightdelay.flights_OriginWeather where year >= 2003").sample(False, 0.01) 
+delayDF.count()
 delayDF.head()
 
 plt.style.use('ggplot')
 
-# # Flight Depature Delay distribution
+# # Depature Delay distribution
 # Shows that majority of flights departure earlier than planned!
-# Method 1 using spark for heavy lifting
-depDelayDF = spark.sql("select DepDelay from flightdelay.flights_OriginWeather limit 10000")
-hists = depDelayDF.select("DepDelay").rdd.flatMap(
-    lambda row: row
-).histogram(30)
-
-
-data = {
-    'bins': hists[0][:-1],
-    'freq': hists[1]
-}
-plt.bar(data['bins'], data['freq'], width = 8)
-
-
-weatherDelayDF = spark.sql("select WeatherDelay from flightdelay.flights_OriginWeather where WeatherDelay > 0 limit 10000")
-hists = weatherDelayDF.select("WeatherDelay").rdd.flatMap(
+# This histogram method uses spark for heavy lifting
+hists = delayDF.select("DepDelay").rdd.flatMap(
     lambda row: row
 ).histogram(30)
 data = {
@@ -41,27 +38,79 @@ data = {
 }
 plt.bar(data['bins'], data['freq'], width = 8)
 
-# Scatter plot Departure Delay and Weather Delay
+# # Weather Delay distribution
+# It shows weather delay looks more like a Poisson distribution
+hists = delayDF.select("WeatherDelay").where(delayDF.WeatherDelay>0).rdd.flatMap(
+    lambda row: row
+).histogram(30)
+data = {
+    'bins': hists[0][:-1],
+    'freq': hists[1]
+}
+plt.bar(data['bins'], data['freq'], width = 8)
+
+# # Scatter plot Departure Delay and Weather Delay
+# It shows some linear relationship between these two variables, but there are other factors
+# The majority of weather delay are within 240 minutes ~ 4 hours
 delayP = spark.sql("select coalesce(WeatherDelay,0) as weatherDelay, coalesce(DepDelay,0) as depDelay  \
-                   from flightdelay.flights_OriginWeather where WeatherDelay >0 limit 10000").toPandas()
+                   from flightdelay.flights_OriginWeather where WeatherDelay >0 and year >= 2003").sample(False, 0.01).toPandas()
 delayP.describe()
 ax = delayP.plot.scatter(x=0, y=1)
-#ax.set_aspect('equal')
 
-## box plot between weather Delay and weather conditions
-wdDetailsDF =spark.sql("select case when Rain ='1' then 1 else 0 end as RainDelay,  \
-                          case when snow ='1' then weatherDelay else 0 end as snowDelay, \
-                          case when hail ='1' then weatherDelay else 0 end as HailDelay, \
-                          case when thunder ='1' then weatherDelay else 0 end as ThunderDelay , \
-                          case when tornado ='1' then weatherDelay else 0 end as TornadoDelay \
-                      from flightdelay.flights_OriginWeather where weatherDelay > 0 limit 100000").toPandas()
+# #Show category
+delayDF = spark.sql("""select delayCat, count(*) from (
+                          select case when weatherDelay < 0 then '0.Early Arrival'
+                          when weatherDelay> 0 and weatherDelay <= 15 then '1.Less than 15 Minutes' 
+                          when weatherDelay> 15 and weatherDelay <= 60 then  '2.Between 15 Minutes and 1 Hour' 
+                          when weatherDelay> 60 and weatherDelay <= 120 then '3.Between 1 Hour and 2 Hours' 
+                          when weatherDelay > 120 and weatherDelay <= 240 then '4.Between 2 Hours and 4 Hours' 
+                          when weatherDelay > 240 then '5.Beyond 4 Hours' end as delayCat 
+                          from flightdelay.flights_OriginWeather 
+                          where weatherDelay > 0 and year >= 2003
+                     ) tmp
+                     group by delayCat order by delayCat""")
+delayDF.show()             
+#delayDF.plot.bar(color='r',title='Frequency of Delay')
+
+# # Box plot between weather Delay and weather conditions
+wdDetailsDF =spark.sql("""select case when Rain ='1' then 1 else 0 end as rainDelay,  
+                          case when snow ='1' then weatherDelay else 0 end as snowDelay, 
+                          case when hail ='1' then weatherDelay else 0 end as hailDelay, 
+                          case when thunder ='1' then weatherDelay else 0 end as thunderDelay, 
+                          case when tornado ='1' then weatherDelay else 0 end as tornadoDelay, 
+                          case when weatherDelay < 0 then '0.Early Arrival'
+                            when weatherDelay> 0 and weatherDelay <= 15 then '1.Less than 15 Minutes' 
+                            when weatherDelay> 15 and weatherDelay <= 60 then  '2.Between 15 Minutes and 1 Hour' 
+                            when weatherDelay> 60 and weatherDelay <= 120 then '3.Between 1 Hour and 2 Hours' 
+                            when weatherDelay > 120 and weatherDelay <= 240 then '4.Between 2 Hours and 4 Hours' 
+                            when weatherDelay > 240 then '5.Beyond 4 Hours' 
+                          end as delayCat
+                      from flightdelay.flights_OriginWeather where weatherDelay > 0 and year >= 2003""").sample(False, 0.01).toPandas()
 #plt.xLabel="Minutes"
-#wdDetailsDF.boxplot(ax=ax )
-#axy = wdDetailsDF.boxplot()
+#wdDetailsDF.boxplot(ax=ax)
+axy = wdDetailsDF.boxplot()
 #axy.set_ylabel="Minutes"
-#wdDetailsDF.boxplot(ax=axy )
+#wdDetailsDF.boxplot(ax=axy)
 #wdDetailsDF.index.name = "test"
 wdDetailsDF.boxplot()
+
+# #Numberic values pairplot with weatherDelay
+wdDetailsDF =spark.sql("""select case when weatherDelay < 0 then '0.Early Arrival'
+                            when weatherDelay> 0 and weatherDelay <= 15 then '1.Less than 15 Minutes' 
+                            when weatherDelay> 15 and weatherDelay <= 60 then  '2.Between 15 Minutes and 1 Hour' 
+                            when weatherDelay> 60 and weatherDelay <= 120 then '3.Between 1 Hour and 2 Hours' 
+                            when weatherDelay > 120 and weatherDelay <= 240 then '4.Between 2 Hours and 4 Hours' 
+                            when weatherDelay > 240 then '5.Beyond 4 Hours' 
+                          end as delayCat,
+                          Temp,Visibility,WindSpeed,MaxWindSpeed,Precipitation,SnowDepth
+                          from flightdelay.flights_OriginWeather 
+                          where weatherDelay > 0 and year >= 2003 
+                          """).sample(False, 0.01).toPandas()
+#                          and Precipitation < 99 and SnowDepth < 999
+#                          and visibility < 999 and windspeed < 999 and maxwindspeed < 999
+wdDetailsDF_selected = wdDetailsDF[["Temp","Visibility","WindSpeed","MaxWindSpeed","Precipitation","SnowDepth","delayCat"]]
+#sb.pairplot(wdDetailsDF_selected)
+sb.pairplot(wdDetailsDF_selected, hue="delayCat")
 
 # seaborn violinplot shows more information than boxplot. will try next time
 
@@ -95,7 +144,6 @@ correlDF = spark.sql("""select year, month, count(*) as totalNumFlights, sum(del
                 from flightdelay.flights_OriginWeather 
             ) as b group by year, month 
 """)
-
 correlDF.show()
 
 correlDF2 = spark.sql("""select year, month, count(*) as totalNumFlights, sum(delay), sum(wdelay),
@@ -121,6 +169,5 @@ correlDF2 = spark.sql("""select year, month, count(*) as totalNumFlights, sum(de
             ) as b group by year, month 
           order by sum(wdelay) desc
 """)
-
 correlDF2.show()
 
