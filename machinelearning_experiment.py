@@ -64,4 +64,14 @@ cdsw.track_metric("accuracy", accuracy)
 rfModel = model.stages[2]
 print(rfModel)  # summary only
 
+model.write().overwrite().save("models/spark")
+
+!rm -r -f models/spark
+!rm -r -f models/spark_rf.tar
+!hdfs dfs -get models/spark 
+!hdfs dfs -get models
+!tar -cvf models/spark_rf.tar models/spark
+
+cdsw.track_file("models/spark_rf.tar")
+
 spark.stop()

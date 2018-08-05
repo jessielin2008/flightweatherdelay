@@ -12,8 +12,8 @@ rm *.*
 ## get airport reference file
 wget ftp://ftp.ncdc.noaa.gov/pub/data/noaa/isd-history.csv
 
-## download weather files for 1987-2008 in tar format
-for i in $(seq 1998 2008)
+## download weather files for 2004-2007 in tar format
+for i in $(seq 2004 2007)
 do 
   ## download weather file for each year
   wget ftp://ftp.ncdc.noaa.gov/pub/data/gsod/$i/gsod_$i.tar
@@ -64,8 +64,8 @@ rm ~/data/isd-history.csv
 cd ~/data
 rm *.*
 
-## download files for 1987-2008
-for i in $(seq 1998 2008)
+## download files for 2004-2007
+for i in $(seq 2004 2007)
 do 
   ## download file for each year
   wget http://stat-computing.org/dataexpo/2009/$i.csv.bz2

@@ -97,13 +97,14 @@ weatherDF.groupBy("Year").count.show
 //********************************************************************************
 // join DFs and get daily weather only for US airports
 //********************************************************************************
-val airportWtherDF=weatherDF.join(airportDF, weatherDF("StationNumber")===airportDF("max(USAF)")).
+val originWtherDF=weatherDF.join(airportDF, weatherDF("StationNumber")===airportDF("max(USAF)")).
   select("AirportCode", "Year", "Month","Day", 
          "Temp","Visibility","WindSpeed","MaxWindSpeed",
          "Precipitation","SnowDepth","Fog","Rain","Snow","Hail","Thunder","Tornado")
-//number of airport weather data = 324419
-airportWtherDF.count
-airportWtherDF.show
+//number of airport weather data = 2744251
+originWtherDF.count
+originWtherDF.show
+val destWtherDF = originWtherDF
 
 //********************************************************************************
 // Join with flight on origin airport and YMD
@@ -121,13 +122,13 @@ val columnList= List( StructField("Year", IntegerType),
      StructField("TailNum", StringType), 
      StructField("ActualElaspedTime", IntegerType),
      StructField("CRSElapsedTime", IntegerType),
-     StructField("AirTime", IntegerType), 
+     StructField("AirTime", IntegerType),
      StructField("ArrDelay", IntegerType),
      StructField("DepDelay", IntegerType),
      StructField("Origin", StringType),
      StructField("Dest", StringType),
      StructField("Distance", IntegerType),
-     StructField("TaxiIn", IntegerType), 
+     StructField("TaxiIn", IntegerType),
      StructField("TaxiOut", IntegerType),
      StructField("Cancelled", IntegerType),
      StructField("CancellationCode", StringType),
@@ -145,35 +146,77 @@ val flightDF=spark.read.option("header","true").
      option("quote", null).option("mode","DROPMALFORMED").
      schema(flightSchema).
      csv("flightdelay/flights/*.csv")
-//US has 5 million flights a year : 1988 - 5,202,096
+//US has 6-7 million flights a year
 flightDF.count 
 flightDF.groupBy("Year").count.show
 //flightDF.write.mode("overwrite").saveAsTable("flightdelay.flights")
 
+//val resultDF = flightDF.join(originWtherDF, flightDF("Origin")===originWtherDF("AirportCode") and 
+//                            flightDF("Year")===originWtherDF("Year") and
+//                            flightDF("Month")===originWtherDF("Month") and
+//                            flightDF("DayOfMonth")===originWtherDF("Day")).
+//                        join(destWtherDF,flightDF("Dest")===destWtherDF("AirportCode") and 
+//                            flightDF("Year")===destWtherDF("Year") and
+//                            flightDF("Month")===destWtherDF("Month") and
+//                            flightDF("DayOfMonth")===destWtherDF("Day"))
+//    select(flightDF("Year"), flightDF("Month"), flightDF("DayOfMonth").alias("Day"),
+//          flightDF("DayOfWeek"), flightDF("Origin"), flightDF("Dest"),flightDF("DepTime"), flightDF("CRSDepTime")
+//          , flightDF("ArrTime"), flightDF("CRSArrTime"), flightDF("UniqueCarrier")
+//          , flightDF("FlightNum"), flightDF("DepDelay"), flightDF("Origin")
+//          , flightDF("TaxiOut"), flightDF("Cancelled"), flightDF("CancellationCode")
+//          , flightDF("CarrierDelay"), flightDF("WeatherDelay"),flightDF("NASDelay"), flightDF("SecurityDelay"), flightDF("LateAircraftDelay")
+//          ,originWtherDF("Temp").alias("OriginTemp"),originWtherDF("Visibility").alias("OriginVisibility"),originWtherDF("WindSpeed").alias("OriginWindSpeed")
+//          ,originWtherDF("MaxWindSpeed").alias("OriginMaxWindSpeed"),originWtherDF("Precipitation").alias("OriginPrecipitation")
+//          ,originWtherDF("SnowDepth").alias("OriginSnowDepth"),originWtherDF("Fog").alias("OriginFog"),originWtherDF("Rain").alias("OriginRain")
+//          ,originWtherDF("Snow").alias("OriginSnow"),originWtherDF("Hail").alias("OriginHail"),originWtherDF("Thunder").alias("OriginThunder"),originWtherDF("Tornado").alias("OriginTornado")
+//          ,destWtherDF("Temp").alias("DestTemp"),destWtherDF("Visibility").alias("DestVisibility"),destWtherDF("WindSpeed").alias("DestWindSpeed")
+//          ,destWtherDF("MaxWindSpeed").alias("DestMaxWindSpeed"),destWtherDF("Precipitation").alias("DestPrecipitation")
+//          ,destWtherDF("SnowDepth").alias("DestSnowDepth"),destWtherDF("Fog").alias("DestFog"),destWtherDF("Rain").alias("DestRain")
+//          ,destWtherDF("Snow").alias("DestSnow"),destWtherDF("Hail").alias("DestHail"),destWtherDF("Thunder").alias("DestThunder"),destWtherDF("Tornado").alias("DestTornado"))
 
-//********************************************************************************
-// Save dataframe to parquet file for later analytics
-//********************************************************************************
-val resultDF = flightDF.join(airportWtherDF, flightDF("Origin")===airportWtherDF("AirportCode") and 
-                            flightDF("Year")===airportWtherDF("Year") and
-                            flightDF("Month")===airportWtherDF("Month") and
-                            flightDF("DayOfMonth")===airportWtherDF("Day")).
-    select(flightDF("Year"), flightDF("Month"), airportWtherDF("Day"),
-          flightDF("DayOfWeek"), flightDF("DepTime"), flightDF("CRSDepTime")
+val flight1DF = flightDF.join(originWtherDF, flightDF("Origin")===originWtherDF("AirportCode") and 
+                            flightDF("Year")===originWtherDF("Year") and
+                            flightDF("Month")===originWtherDF("Month") and
+                            flightDF("DayOfMonth")===originWtherDF("Day")).
+    select(flightDF("Year"), flightDF("Month"), flightDF("DayOfMonth").alias("Day"),
+          flightDF("DayOfWeek"), flightDF("Origin"), flightDF("Dest"),flightDF("DepTime"), flightDF("CRSDepTime")
           , flightDF("ArrTime"), flightDF("CRSArrTime"), flightDF("UniqueCarrier")
           , flightDF("FlightNum"), flightDF("DepDelay"), flightDF("Origin")
           , flightDF("TaxiOut"), flightDF("Cancelled"), flightDF("CancellationCode")
           , flightDF("CarrierDelay"), flightDF("WeatherDelay"),flightDF("NASDelay"), flightDF("SecurityDelay")
-          , flightDF("LateAircraftDelay"),airportWtherDF("Temp"),airportWtherDF("Visibility"),airportWtherDF("WindSpeed")
-          ,airportWtherDF("MaxWindSpeed"),airportWtherDF("Precipitation"),airportWtherDF("SnowDepth"),airportWtherDF("Fog"),airportWtherDF("Rain")
-          ,airportWtherDF("Snow"),airportWtherDF("Hail"),airportWtherDF("Thunder"),airportWtherDF("Tornado"))
+          , flightDF("LateAircraftDelay"),originWtherDF("Temp").alias("OriginTemp"),originWtherDF("Visibility").alias("OriginVisibility"),originWtherDF("WindSpeed").alias("OriginWindSpeed")
+          ,originWtherDF("MaxWindSpeed").alias("OriginMaxWindSpeed"),originWtherDF("Precipitation").alias("OriginPrecipitation")
+          ,originWtherDF("SnowDepth").alias("OriginSnowDepth"),originWtherDF("Fog").alias("OriginFog"),originWtherDF("Rain").alias("OriginRain")
+          ,originWtherDF("Snow").alias("OriginSnow"),originWtherDF("Hail").alias("OriginHail"),originWtherDF("Thunder").alias("OriginThunder"),originWtherDF("Tornado").alias("OriginTornado"))
 
-//flights with origin airport weather - 4,119,538 for 1988
+val resultDF = flight1DF.join(destWtherDF,flight1DF("Dest")===destWtherDF("AirportCode") and 
+                            flight1DF("Year")===destWtherDF("Year") and
+                            flight1DF("Month")===destWtherDF("Month") and
+                            flight1DF("Day")===destWtherDF("Day")).
+    select(flight1DF("Year"), flight1DF("Month"), flight1DF("Day"),
+          flight1DF("DayOfWeek"), flight1DF("DepTime"), flight1DF("CRSDepTime")
+          , flight1DF("ArrTime"), flight1DF("CRSArrTime"), flight1DF("UniqueCarrier")
+          , flight1DF("FlightNum"), flight1DF("DepDelay"), flight1DF("Origin"), flight1DF("Dest")
+          , flight1DF("TaxiOut"), flight1DF("Cancelled"), flight1DF("CancellationCode")
+          , flight1DF("CarrierDelay"), flight1DF("WeatherDelay"),flight1DF("NASDelay"), flight1DF("SecurityDelay")
+          , flight1DF("LateAircraftDelay"),flight1DF("OriginTemp"),flight1DF("OriginVisibility"),flight1DF("OriginWindSpeed")
+          ,flight1DF("OriginMaxWindSpeed"),flight1DF("OriginPrecipitation")
+          ,flight1DF("OriginSnowDepth"),flight1DF("OriginFog"),flight1DF("OriginRain")
+          ,flight1DF("OriginSnow"),flight1DF("OriginHail"),flight1DF("OriginThunder"),flight1DF("OriginTornado")
+          ,destWtherDF("Temp").alias("DestTemp"),destWtherDF("Visibility").alias("DestVisibility"),destWtherDF("WindSpeed").alias("DestWindSpeed")
+          ,destWtherDF("MaxWindSpeed").alias("DestMaxWindSpeed"),destWtherDF("Precipitation").alias("DestPrecipitation")
+          ,destWtherDF("SnowDepth").alias("DestSnowDepth"),destWtherDF("Fog").alias("DestFog"),destWtherDF("Rain").alias("DestRain")
+          ,destWtherDF("Snow").alias("DestSnow"),destWtherDF("Hail").alias("DestHail"),destWtherDF("Thunder").alias("DestThunder"),destWtherDF("Tornado").alias("DestTornado"))
+
+//flights with origin airport weather - 26MM for 2004-2007
 resultDF.count 
 resultDF.printSchema
 
+//********************************************************************************
+// Save dataframe to parquet file for later analytics
+//********************************************************************************
+
 val spark = SparkSession.builder.getOrCreate()
 spark.sql("create database if not exists flightdelay")
-resultDF.write.mode("overwrite").partitionBy("Year","Month").saveAsTable("flightdelay.flights_originweather")
-// resultDF.groupBy("Year","Month").count.sort($"count".desc).show
-
+resultDF.write.mode("overwrite").partitionBy("Year","Month").saveAsTable("flightdelay.flights_weather")
+resultDF.groupBy("Year","Month").count.sort($"count".desc).show
