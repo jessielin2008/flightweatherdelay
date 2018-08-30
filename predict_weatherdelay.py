@@ -16,16 +16,18 @@ features = ["Month","Day", "DayOfWeek", "CRSDepHour","UniqueCarrier","Origin", "
 
 def predict(args):
   flight=args["feature"].split(",")
+
+  #fill in missing weather
   if (len(flight) == 7):
-    #fill in missing weather
     flight = flight + [9999,99999,999999,99999,9999,0]
-    
+
+  #tranform features, and use binary classificiatio to prediction whether there will be flight delay
   feature = spark.createDataFrame([map(float,flight[:4]) + flight[4:7] 
                                   + map(float,flight[7:12]) + [flight[12]]], features)
   result=model1.transform(feature).collect()[0].prediction 
 
+  #predict how long if there will be a weather delay
   if (result == 1):
-    #predict how long if there will be a weather delay
     result=pow(10, model2.transform(feature).collect()[0].prediction)
   return {"result" : result}
 

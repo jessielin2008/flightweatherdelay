@@ -134,12 +134,12 @@ trainingSummary = lrModel.stages[-1].summary
 roc_auc = trainingSummary.areaUnderROC
 print("areaUnderROC: " + str(roc_auc))
 
-lrModel.write().overwrite().save("flightdelay/lrfModel")
-
-!rm -r -f models/spark/lrfModel
-!rm -r -f models/spark_lrf.tar
-!hdfs dfs -get flightdelay/lrfModel models/spark/lrfModel
-!tar -cvf models/spark_lrf.tar models/spark/lrfModel
+#lrModel.write().overwrite().save("flightdelay/lrfModel")
+#
+#!rm -r -f models/spark/lrfModel
+#!rm -r -f models/spark_lrf.tar
+#!hdfs dfs -get flightdelay/lrfModel models/spark/lrfModel
+#!tar -cvf models/spark_lrf.tar models/spark/lrfModel
 
 ###############################################################
 # # With weather info 79%
