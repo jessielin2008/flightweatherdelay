@@ -4,12 +4,12 @@ Created by Jessie Lin (jlin@cloudera.com)
 ## Status: In Progress
 ## Use Case: 
 This project attempts to use historical flight and weather to predict departure delay.
-So it could be used to predict delay as soon as weather forecast is known and could be improved as departure day come closure as weather forecast gets more accurate.
+So it could be used to predict delay as soon as weather forecast is known and could be improved as departure day come closer and weather forecast gets more accurate.
 
 ## Steps:
-1. In Terminal run setup.sh to download flight and daily weather data and copy to HDFS. It downloads dataset for 4 years(2004-2007) and can take up to 10 minutes. 
-   Then run setup_isd.sh to download hourly weather day. This script takes overnight. Don't run it if you don't need to.
+1. In Terminal run setup.sh to download flight and hourly weather data and copy to HDFS. It downloads dataset for 4 years(2004-2007) and will take overnight.
    If Hive has flightDelay.flights_weatherhourly table ready, you can skip setup.sh and ingest.scala 
+   Don't run setup.sh if you don't need to.
 2. Launch Scala Engine (at least 2 core 8GB memory) and use Ingest-hourly.scala to ingest data from HDFS to Hive flightDelay.flights_weatherhourly
 3. When completed demo, in Python Engine and run cleanup.py
 
@@ -23,7 +23,7 @@ So it could be used to predict delay as soon as weather forecast is known and co
 [Recording](https://cloudera.box.com/s/v8q7j5g7cb4lw2y7peozfeax50d37rxu)
 
 ## Estimated Runtime:
-0. Setup.sh 10 minutes / Setup_isd.sh overnight
+0. Setup.sh overnight
 1. Ingest-hourly.scala - 30 minutes
 2. analysis-hourly.py - 5 minutes
 3. ml_binaryclass_interactive.py - 15 minutes
@@ -32,9 +32,11 @@ So it could be used to predict delay as soon as weather forecast is known and co
 6. predict_weatherdelay.py
 
 ## Demo Script
-1. ingest-hourly.scala Ingest pipeline
-2. analysis-hourly.py 
-3. predict_weatherdelay.py 
+1. Ingest-pipeline: ingest-hourly.scala 
+2. Visualization: analysis-hourly.py   
+3. Binary classification model training: ml_binaryclass_interactive.py 
+4. Experiment Tracking: ml_rfc_experiment.py
+5. Model Deployment: predict_weatherdelay.py
 
 ## Related Content
 1. Aki wrote a [blog](http://blog.cloudera.com/blog/2017/02/analyzing-us-flight-data-on-amazon-s3-with-sparklyr-and-apache-spark-2-0/)  on predicting arrival delay using vairables such as departure delay 
