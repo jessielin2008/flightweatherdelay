@@ -45,8 +45,8 @@ So it could be used to predict delay as soon as weather forecast is known and co
 
 3. [Flight Delay notebook on Kaggle](https://www.kaggle.com/fabiendaniel/predicting-flight-delays-tutorial)
 
-4.[Daily weather data(GSOD)](https://data.nodc.noaa.gov/cgi-bin/iso?id=gov.noaa.ncdc:C00516)
-  [Description](https://www1.ncdc.noaa.gov/pub/data/gsod/readme.txt)
+4. [Daily weather data(GSOD)](https://data.nodc.noaa.gov/cgi-bin/iso?id=gov.noaa.ncdc:C00516)
+   [Description](https://www1.ncdc.noaa.gov/pub/data/gsod/readme.txt)
    
-5.[Hourly weather data(ISD)](https://www.ncdc.noaa.gov/isd)
-  [Description](ftp://ftp.ncdc.noaa.gov/pub/data/noaa/ish-format-document.pdf)
+5. [Hourly weather data(ISD)](https://www.ncdc.noaa.gov/isd)
+   [Description](ftp://ftp.ncdc.noaa.gov/pub/data/noaa/ish-format-document.pdf)
