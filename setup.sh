@@ -1,36 +1,33 @@
+## make dir for models
+mkdir -p models/spark
+
+## make directory and remove older files
+mkdir -p ~/data/isd
+cd ~/data/isd
+
 #############################################################
 #
 # Download weather dataset from NOAA and copy to HDFS 
+# THIS TAKES OVER 10 HOURS DON'T RUN IT IF YOU DON'T HAVE TO
 #
 #############################################################
 
-## make directory and remove older files
-mkdir ~/data
-cd ~/data
-rm *.*
-
-## get airport reference file
-wget ftp://ftp.ncdc.noaa.gov/pub/data/noaa/isd-history.csv
-
-## download weather files for 2004-2007 in tar format
-for i in $(seq 2004 2007)
+## download weather files for 2004-2007 in gz format
+for i in $(seq 2006 2007)
 do 
   ## download weather file for each year
-  wget ftp://ftp.ncdc.noaa.gov/pub/data/gsod/$i/gsod_$i.tar
+  wget ftp://ftp.ncdc.noaa.gov/pub/data/noaa/$i/*-$i.gz
   
-  ## untar and unzip them to *.op file
-  tar -xvf gsod_$i.tar
+  ## unzip them to text file
   gzip -d *.gz
   
   ## combine files into a single large file
-  array=($(ls *$i.op))
-  file_name=(gsod_$i.txt)
+  array=($(ls *$i))
+  file_name=(isd-working.txt)
   echo "filename is $file_name"
   
   for file in ${array[@]};
   do
-    #remover header
-    sed -i '1d' $file
     #concatinate them to a big file
     echo "concatenate $file to $file_name"
     cat $file >> $file_name
@@ -38,20 +35,25 @@ do
   echo "file for year $i combined."
   
   ## remove working files
-  rm *$i.op
+  rm *-$i
+  mv isd-working.txt isd-$i.txt
 done
 
+## get airport reference file
+wget ftp://ftp.ncdc.noaa.gov/pub/data/noaa/isd-history.csv
 
 ## copy weather data from local container to hdfs weather folder
-hdfs dfs -mkdir flightdelay
-hdfs dfs -mkdir flightdelay/weather
-hdfs dfs -copyFromLocal ~/data/*.txt flightdelay/weather
-hdfs dfs -copyFromLocal ~/data/isd-history.csv flightdelay/weather
+#hdfs dfs -mkdir flightdelay
+hdfs dfs -mkdir flightdelay/weatherhourly
+hdfs dfs -copyFromLocal ~/data/*.txt flightdelay/weatherhourly
+hdfs dfs -copyFromLocal ~/data/isd-history.csv flightdelay/weatherhourly
 echo "weather files copied to HDFS."
 
-rm ~/data/*.tar
-rm ~/data/*.txt
-rm ~/data/isd-history.csv
+#rm ~/data/*.txt
+#rm ~/data/isd-history.csv
+
+#rm ~/data/*.*
+#rmdir ~/data 
 
 
 #############################################################
@@ -61,7 +63,8 @@ rm ~/data/isd-history.csv
 #############################################################
 
 ## remove files and start from clean state
-cd ~/data
+mkdir -p ~/data/flights
+cd ~/data/flights
 rm *.*
 
 ## download files for 2004-2007
@@ -77,10 +80,10 @@ done
 
 ## copy data from local container to hdfs folder
 hdfs dfs -mkdir flightdelay/flights
-hdfs dfs -copyFromLocal ~/data/*.csv flightdelay/flights
+hdfs dfs -copyFromLocal ~/data/flights/*.csv flightdelay/flights
 echo "flight files copied to HDFS."
 
-rm ~/data/*.csv
-
+rm ~/data/flights/*.csv
 #rm ~/data/*.*
-rmdir ~/data 
+#rmdir ~/data
+

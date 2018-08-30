@@ -24,6 +24,5 @@
 
 from pyspark.sql import SparkSession
 spark = SparkSession.builder.appName("FlightDelay-Cleanup").getOrCreate()
-spark.sql('drop table if exists flightDelay.flights')
-spark.sql('drop table if exists flightDelay.flights_OriginWeather')
+spark.sql('drop table if exists flightDelay.flights_weatherhourly')
 spark.sql('drop database flightDelay')

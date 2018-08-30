@@ -1,7 +1,8 @@
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql.types._
+import org.apache.spark.sql.Column
 //********************************************************************************
-// Ingest worldwide airport station data in csv
+// Ingest worldwide weather station data in csv
 //********************************************************************************
 val stationColumnList= List( 
      StructField("USAF", IntegerType),
@@ -26,7 +27,7 @@ stationDF.show
 
 
 //********************************************************************************
-// Filter US airport with valid station number and airport code
+// Filter weather station with with valid number and US airport code
 //********************************************************************************
 val airportDF = stationDF.where("Country = 'US'").
      where("USAF != '999999'").
@@ -35,90 +36,190 @@ val airportDF = stationDF.where("Country = 'US'").
      groupBy("AirportCode").max("USAF")
 
 //val airportDF1=airportDF.select($"AirportCode", $"max(USAF)".alias("StationNumber"))
-// Airportcode count = 2485
+// Airportcode count = 2461
 airportDF.count
 airportDF.show
 
 //********************************************************************************
-// ingest daily weather data - fixed length text file
+// ingest hourly weather data - fixed length text file
 //********************************************************************************
 case class Weather(StationNumber: Int, 
                    WBAN: String, 
                    Year:Int, 
                    Month:Int,
                    Day:Int,
-                   Temp:Float,
-                   Visibility:Float,
-                   WindSpeed:Float,
-                   MaxWindSpeed:Float,
-                   Precipitation:Float,
-                   SnowDepth:Float,
-                   Fog:Int,
-                   Rain:Int, //Rain or Drizzle
-                   Snow:Int, //Snow or Ice Pellets
-                   Hail:Int,
-                   Thunder:Int,
-                   Tornado:Int //Tornado or Funnel Cloud
-                  )
+                   Hour:Int,
+                   WindSpeed:Int,
+                   CeilingHeight:Int,
+                   Visibility:Int,
+                   Temp:Int,
+                   Pressure:Int,
+                   PrecipitationHour:Int,
+                   Precipitation:Int,
+                   Precipitation48:Float,
+                   PresentWeatherCode:String
+                   //AA1 precipitation hourly, AJ1 snow depth-4,AN1 snow accumulation 3-4, AU1 Present Weather Code 2
+              )
+
+def parseISD(l:String): Weather = {
+    var precipitationHour = 0
+    var precipitation = 0
+    var presentWeatherCode = "0"
+    var precipitation48:Float = 0.0f
+    if(l.indexOf("AA1") != -1){
+        //Additional Info sectuib starts with "AA1"
+        val additionalInfo: String =l.substring(l.indexOf("AA1") + 3 ).trim()
+        try {
+            precipitation = additionalInfo.substring(2,6).trim().toInt
+        }catch {
+              case ex: NumberFormatException => {
+                precipitation = 9999
+              }
+        }
+        try {
+            precipitationHour = additionalInfo.substring(0,2).trim().toInt
+            if (precipitationHour == 99 || precipitation == 9999) {
+              precipitation48 = 9999.0f
+            } else if (precipitationHour == 0 && precipitation == 0 ){
+              precipitation48 = 0.0f          
+            } else if (precipitationHour == 0 && precipitation != 0 ){
+              //treat it as hourly
+              precipitation48 = precipitation* 48f * 0.0393700787f
+            } else {  
+              precipitation48 = precipitation/precipitationHour * 48f * 0.0393700787f
+            }
+        }catch {
+              case ex: NumberFormatException => {
+                precipitationHour = 99
+                precipitation48 = 9999
+              }
+        }
+    }
+    if(l.indexOf("AT1") > 0) {
+      val additionalInfo: String =l.substring(l.indexOf("AT1") + 3).trim()
+      if (additionalInfo.length() >=4 ) {
+        presentWeatherCode = additionalInfo.substring(4)
+        if(additionalInfo.length() >= 8) {
+          presentWeatherCode = additionalInfo.substring(4,8)
+        }
+      }
+    }
+    return Weather(
+          l.substring(4, 10).trim().toInt, 
+          l.substring(10, 15).trim(),
+          l.substring(15,19).trim().toInt, 
+          l.substring(19,21).trim().toInt,
+          l.substring(21,23).trim().toInt,
+          l.substring(23,25).trim().toInt,
+          l.substring(65,69).trim().toInt,
+          l.substring(70,75).trim().toInt,
+          l.substring(78,84).trim().toInt,
+          l.substring(87,92).trim().toInt,
+          l.substring(99,104).trim().toInt, 
+          precipitationHour,
+          precipitation,
+          precipitation48,
+          presentWeatherCode
+        )
+}
 
 // Notice in map function, skipped columns not in interest
-val weatherDF =spark.read.textFile("flightdelay/weather/gsod_*.txt").
-  map(l => (l.substring(0, 6).trim(), 
-             l.substring(7, 12).trim(), 
-             l.substring(14,18).trim(), 
-             l.substring(18,20).trim(),
-             l.substring(20,22).trim(),
-             l.substring(24,30).trim(),
-             l.substring(68,73).trim(),
-             l.substring(78,83).trim(),
-             l.substring(88,93).trim(),
-             l.substring(118,123).trim(),
-             l.substring(125,130).trim(),
-             l.substring(132,133).trim(),
-             l.substring(133,134).trim(),
-             l.substring(134,135).trim(),
-             l.substring(135,136).trim(),
-             l.substring(136,137).trim(),    
-             l.substring(137,138).trim())).
-  map({ case (st, wban, y, m, d, t, v, ws, mws, p, sd, f, r, s, h, th, to) => 
-        Weather(st.toInt, wban, y.toInt, m.toInt, d.toInt,
-                t.toFloat, v.toFloat, ws.toFloat, mws.toFloat,
-                p.toFloat, sd.toFloat, f.toInt, r.toInt, s.toInt,h.toInt, th.toInt, to.toInt)}).
-  where("StationNumber != '999999'").
+val isdDF =spark.read.textFile("flightdelay/weatherhourly/isd-*.txt").
+  map(l => parseISD(l)).
+  filter("WBAN <> '99999'").
   toDF
-// number of weather data in the year = 324419
-weatherDF.count
-weatherDF.show
+isdDF.registerTempTable("isd_weather")
+//isdDF.write.mode("overwrite").saveAsTable("flightdelay.isd_weather")
 
+// dedupe WBAN, and replace missing value with null
+val weatherDF = spark.sql("""
+  select StationNumber,WBAN, year, month, day, hour, 
+      case when MaxWindSpeed = -1 then 9999 else MaxWindSpeed end as MaxWindSpeed,
+      MinWindSpeed,
+      DistinctWindSpeed,
+      case when MaxCeilingHeight = -1 then 99999 else MaxCeilingHeight end as MaxCeilingHeight,
+      MinCeilingHeight,
+      DistinctCeilingHeight,
+      case when MaxVisibility = -1 then 999999 else MaxVisibility end as MaxVisibility,
+      MinVisibility,
+      DistinctVisibility,
+      case when MaxTemp = -9999 then 9999 else MaxTemp end as MaxTemp,
+      MinTemp,
+      DistinctTemp,
+      case when MaxPressure = -1 then 99999 else MaxPressure end as MaxPressure,
+      MinPressure,
+      DistinctPressure,
+      case when MaxPrecipitation48 = -1 then 9999 else MaxPrecipitation48 end as MaxPrecipitation48,
+      MinPrecipitation48,
+      DistinctPrecipitation48,
+      MaxPresentWeatherCode,
+      NumOfRec from (
+        select StationNumber,WBAN, year, month, day, hour, 
+        max(case when WindSpeed = 9999 then -1 else WindSpeed end) as MaxWindSpeed,
+        min(WindSpeed) as MinWindSpeed,
+        count(distinct WindSpeed) as DistinctWindSpeed,
+        max(case when CeilingHeight = 99999 then -1 else CeilingHeight end) as MaxCeilingHeight,
+        min(CeilingHeight) as MinCeilingHeight,
+        count(distinct CeilingHeight) as DistinctCeilingHeight,
+        max(case when visibility = 999999 then -1 else visibility end) as MaxVisibility,
+        min(visibility) as MinVisibility,
+        count(distinct visibility) as DistinctVisibility,
+        max(case when temp = 9999 then -9999 else temp end) as MaxTemp,
+        min(temp) as MinTemp,
+        count(distinct temp) as DistinctTemp,
+        max(case when pressure = 99999 then -1 else pressure end) as MaxPressure,
+        min(pressure) as MinPressure,
+        count(distinct pressure) as DistinctPressure,
+        max(case when precipitation48 = 9999 then -1 else precipitation48 end) as MaxPrecipitation48,
+        min(precipitation48) as MinPrecipitation48,
+        count(distinct Precipitation48) as DistinctPrecipitation48,
+        max(presentWeatherCode) as MaxPresentWeatherCode,
+        count(*) as NumOfRec
+        from flightdelay.isd_weather
+        group by StationNumber,WBAN, year, month, day,hour
+      ) as tmp
+    """)
+//weatherDF.registerTempTable("weather")
+weatherDF.printSchema
+// number of weather data in the year after dedupe ~ 5MM 5579396
+//weatherDF.count
+//weatherDF.show
+//Validate the year has all 12 months  5MM for 2004
+//weatherDF.groupBy("Year").count.show 
 //weatherDF.write.saveAsTable("flightdelay.weather")
-//Validate the year has all 12 months
-weatherDF.groupBy("Year").count.show 
 
 //********************************************************************************
-// join DFs and get daily weather only for US airports
+// join DFs and get weather only for US airports
 //********************************************************************************
 val originWtherDF=weatherDF.join(airportDF, weatherDF("StationNumber")===airportDF("max(USAF)")).
-  select("AirportCode", "Year", "Month","Day", 
-         "Temp","Visibility","WindSpeed","MaxWindSpeed",
-         "Precipitation","SnowDepth","Fog","Rain","Snow","Hail","Thunder","Tornado")
-//number of airport weather data = 2744251
-originWtherDF.count
-originWtherDF.show
-val destWtherDF = originWtherDF
+  select("AirportCode", "Year", "Month","Day", "Hour"
+         ,"MaxWindSpeed","MinWindSpeed","DistinctWindSpeed"
+         ,"MaxCeilingHeight","MinCeilingHeight","DistinctCeilingHeight"
+         ,"MaxVisibility", "MinVisibility","DistinctVisibility"
+         ,"MaxTemp","MinTemp","DistinctTemp"
+         ,"MaxPressure","MinPressure","DistinctPressure"
+         ,"MaxPrecipitation48","MinPrecipitation48","DistinctPrecipitation48"
+         , "MaxPresentWeatherCode","NumOfRec"
+        )
+//number of airport weather data = 4.8MM for 2004
+originWtherDF.groupBy("Year", "Month").count.show
+//originWtherDF.show
+//val destWtherDF = originWtherDF
+//originWtherDF.write.mode("overwrite").saveAsTable("flightdelay.weatherhourly")
 
 //********************************************************************************
-// Join with flight on origin airport and YMD
+// Read flight on origin airport and YMD
 //********************************************************************************
-val columnList= List( StructField("Year", IntegerType),
-     StructField("Month", IntegerType),
-     StructField("DayOfMonth", IntegerType),
+val columnList= List( StructField("Year", IntegerType, nullable = false),
+     StructField("Month", IntegerType, nullable = false),
+     StructField("DayOfMonth", IntegerType, nullable = false),
      StructField("DayOfWeek", IntegerType),
      StructField("DepTime", IntegerType),
-     StructField("CRSDepTime", IntegerType),
+     StructField("CRSDepTime", IntegerType, nullable = false),
      StructField("ArrTime", IntegerType),
      StructField("CRSArrTime", IntegerType),
      StructField("UniqueCarrier", StringType),
-     StructField("FlightNum", StringType),
+     StructField("FlightNum", StringType, nullable = false),
      StructField("TailNum", StringType), 
      StructField("ActualElaspedTime", IntegerType),
      StructField("CRSElapsedTime", IntegerType),
@@ -141,82 +242,47 @@ val columnList= List( StructField("Year", IntegerType),
 
 val flightSchema=StructType(columnList)
 
-val flightDF=spark.read.option("header","true").
+val flDF=spark.read.option("header","true").
      option("nullValue","NA").option("nanValue","NA").
      option("quote", null).option("mode","DROPMALFORMED").
      schema(flightSchema).
      csv("flightdelay/flights/*.csv")
-//US has 6-7 million flights a year
-flightDF.count 
-flightDF.groupBy("Year").count.show
+//US has over 7 million flights a year 2004-2007
+//flDF.groupBy("Year").count.show
+val CRSDepHour: (Column) => Column = (x) => { (x/100).cast(IntegerType) } 
+val flightDF = flDF.withColumn("CRSDepHour", CRSDepHour(col("CRSDepTime")))
+flightDF.printSchema()
+//flightDF.head
 //flightDF.write.mode("overwrite").saveAsTable("flightdelay.flights")
-
-//val resultDF = flightDF.join(originWtherDF, flightDF("Origin")===originWtherDF("AirportCode") and 
-//                            flightDF("Year")===originWtherDF("Year") and
-//                            flightDF("Month")===originWtherDF("Month") and
-//                            flightDF("DayOfMonth")===originWtherDF("Day")).
-//                        join(destWtherDF,flightDF("Dest")===destWtherDF("AirportCode") and 
-//                            flightDF("Year")===destWtherDF("Year") and
-//                            flightDF("Month")===destWtherDF("Month") and
-//                            flightDF("DayOfMonth")===destWtherDF("Day"))
-//    select(flightDF("Year"), flightDF("Month"), flightDF("DayOfMonth").alias("Day"),
-//          flightDF("DayOfWeek"), flightDF("Origin"), flightDF("Dest"),flightDF("DepTime"), flightDF("CRSDepTime")
-//          , flightDF("ArrTime"), flightDF("CRSArrTime"), flightDF("UniqueCarrier")
-//          , flightDF("FlightNum"), flightDF("DepDelay"), flightDF("Origin")
-//          , flightDF("TaxiOut"), flightDF("Cancelled"), flightDF("CancellationCode")
-//          , flightDF("CarrierDelay"), flightDF("WeatherDelay"),flightDF("NASDelay"), flightDF("SecurityDelay"), flightDF("LateAircraftDelay")
-//          ,originWtherDF("Temp").alias("OriginTemp"),originWtherDF("Visibility").alias("OriginVisibility"),originWtherDF("WindSpeed").alias("OriginWindSpeed")
-//          ,originWtherDF("MaxWindSpeed").alias("OriginMaxWindSpeed"),originWtherDF("Precipitation").alias("OriginPrecipitation")
-//          ,originWtherDF("SnowDepth").alias("OriginSnowDepth"),originWtherDF("Fog").alias("OriginFog"),originWtherDF("Rain").alias("OriginRain")
-//          ,originWtherDF("Snow").alias("OriginSnow"),originWtherDF("Hail").alias("OriginHail"),originWtherDF("Thunder").alias("OriginThunder"),originWtherDF("Tornado").alias("OriginTornado")
-//          ,destWtherDF("Temp").alias("DestTemp"),destWtherDF("Visibility").alias("DestVisibility"),destWtherDF("WindSpeed").alias("DestWindSpeed")
-//          ,destWtherDF("MaxWindSpeed").alias("DestMaxWindSpeed"),destWtherDF("Precipitation").alias("DestPrecipitation")
-//          ,destWtherDF("SnowDepth").alias("DestSnowDepth"),destWtherDF("Fog").alias("DestFog"),destWtherDF("Rain").alias("DestRain")
-//          ,destWtherDF("Snow").alias("DestSnow"),destWtherDF("Hail").alias("DestHail"),destWtherDF("Thunder").alias("DestThunder"),destWtherDF("Tornado").alias("DestTornado"))
 
 val flight1DF = flightDF.join(originWtherDF, flightDF("Origin")===originWtherDF("AirportCode") and 
                             flightDF("Year")===originWtherDF("Year") and
                             flightDF("Month")===originWtherDF("Month") and
-                            flightDF("DayOfMonth")===originWtherDF("Day")).
-    select(flightDF("Year"), flightDF("Month"), flightDF("DayOfMonth").alias("Day"),
-          flightDF("DayOfWeek"), flightDF("Origin"), flightDF("Dest"),flightDF("DepTime"), flightDF("CRSDepTime")
+                            flightDF("DayOfMonth")===originWtherDF("Day") and
+                            flightDF("CRSDepHour")===originWtherDF("Hour"), "inner").
+    select(flightDF("Year"), flightDF("Month"), flightDF("DayOfMonth").alias("Day"),flightDF("CRSDepHour")
+          , flightDF("DayOfWeek"), flightDF("Origin"), flightDF("Dest"),flightDF("DepTime"), flightDF("CRSDepTime")
           , flightDF("ArrTime"), flightDF("CRSArrTime"), flightDF("UniqueCarrier")
-          , flightDF("FlightNum"), flightDF("DepDelay"), flightDF("Origin")
+          , flightDF("FlightNum"), flightDF("DepDelay")
           , flightDF("TaxiOut"), flightDF("Cancelled"), flightDF("CancellationCode")
           , flightDF("CarrierDelay"), flightDF("WeatherDelay"),flightDF("NASDelay"), flightDF("SecurityDelay")
-          , flightDF("LateAircraftDelay"),originWtherDF("Temp").alias("OriginTemp"),originWtherDF("Visibility").alias("OriginVisibility"),originWtherDF("WindSpeed").alias("OriginWindSpeed")
-          ,originWtherDF("MaxWindSpeed").alias("OriginMaxWindSpeed"),originWtherDF("Precipitation").alias("OriginPrecipitation")
-          ,originWtherDF("SnowDepth").alias("OriginSnowDepth"),originWtherDF("Fog").alias("OriginFog"),originWtherDF("Rain").alias("OriginRain")
-          ,originWtherDF("Snow").alias("OriginSnow"),originWtherDF("Hail").alias("OriginHail"),originWtherDF("Thunder").alias("OriginThunder"),originWtherDF("Tornado").alias("OriginTornado"))
+          , flightDF("LateAircraftDelay")
+          , originWtherDF("MaxWindSpeed"), originWtherDF("MinWindSpeed"), originWtherDF("DistinctWindSpeed")
+           ,originWtherDF("MaxCeilingHeight"),originWtherDF("MinCeilingHeight"),originWtherDF("DistinctCeilingHeight")
+           ,originWtherDF("MaxVisibility"), originWtherDF("MinVisibility"),originWtherDF("DistinctVisibility")
+           ,originWtherDF("MaxTemp"),originWtherDF("MinTemp"),originWtherDF("DistinctTemp")
+           ,originWtherDF("MaxPressure"),originWtherDF("MinPressure"),originWtherDF("DistinctPressure")
+           ,originWtherDF("MaxPrecipitation48"),originWtherDF("MinPrecipitation48"),originWtherDF("DistinctPrecipitation48")
+           ,originWtherDF("MaxPresentWeatherCode"), originWtherDF("NumOfRec"))
+//flight1DF.groupBy("Year").count.show
 
-val resultDF = flight1DF.join(destWtherDF,flight1DF("Dest")===destWtherDF("AirportCode") and 
-                            flight1DF("Year")===destWtherDF("Year") and
-                            flight1DF("Month")===destWtherDF("Month") and
-                            flight1DF("Day")===destWtherDF("Day")).
-    select(flight1DF("Year"), flight1DF("Month"), flight1DF("Day"),
-          flight1DF("DayOfWeek"), flight1DF("DepTime"), flight1DF("CRSDepTime")
-          , flight1DF("ArrTime"), flight1DF("CRSArrTime"), flight1DF("UniqueCarrier")
-          , flight1DF("FlightNum"), flight1DF("DepDelay"), flight1DF("Origin"), flight1DF("Dest")
-          , flight1DF("TaxiOut"), flight1DF("Cancelled"), flight1DF("CancellationCode")
-          , flight1DF("CarrierDelay"), flight1DF("WeatherDelay"),flight1DF("NASDelay"), flight1DF("SecurityDelay")
-          , flight1DF("LateAircraftDelay"),flight1DF("OriginTemp"),flight1DF("OriginVisibility"),flight1DF("OriginWindSpeed")
-          ,flight1DF("OriginMaxWindSpeed"),flight1DF("OriginPrecipitation")
-          ,flight1DF("OriginSnowDepth"),flight1DF("OriginFog"),flight1DF("OriginRain")
-          ,flight1DF("OriginSnow"),flight1DF("OriginHail"),flight1DF("OriginThunder"),flight1DF("OriginTornado")
-          ,destWtherDF("Temp").alias("DestTemp"),destWtherDF("Visibility").alias("DestVisibility"),destWtherDF("WindSpeed").alias("DestWindSpeed")
-          ,destWtherDF("MaxWindSpeed").alias("DestMaxWindSpeed"),destWtherDF("Precipitation").alias("DestPrecipitation")
-          ,destWtherDF("SnowDepth").alias("DestSnowDepth"),destWtherDF("Fog").alias("DestFog"),destWtherDF("Rain").alias("DestRain")
-          ,destWtherDF("Snow").alias("DestSnow"),destWtherDF("Hail").alias("DestHail"),destWtherDF("Thunder").alias("DestThunder"),destWtherDF("Tornado").alias("DestTornado"))
-
-//flights with origin airport weather - 26MM for 2004-2007
-resultDF.count 
-resultDF.printSchema
 
 //********************************************************************************
 // Save dataframe to parquet file for later analytics
 //********************************************************************************
 
-val spark = SparkSession.builder.getOrCreate()
 spark.sql("create database if not exists flightdelay")
-resultDF.write.mode("overwrite").partitionBy("Year","Month").saveAsTable("flightdelay.flights_weather")
-resultDF.groupBy("Year","Month").count.sort($"count".desc).show
+flight1DF.write.mode("overwrite").partitionBy("Year","Month").saveAsTable("flightdelay.flights_weatherhourly")
+flight1DF.groupBy("Year","Month").count.sort($"count".desc).show
+
+//spark.sql("drop table if exists flightdelay.isd_weather")
