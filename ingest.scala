@@ -285,4 +285,4 @@ spark.sql("create database if not exists flightdelay")
 flight1DF.write.mode("overwrite").partitionBy("Year","Month").saveAsTable("flightdelay.flights_weatherhourly")
 flight1DF.groupBy("Year","Month").count.sort($"count".desc).show
 
-//spark.sql("drop table if exists flightdelay.isd_weather")
+spark.sql("drop table if exists flightdelay.isd_weather")

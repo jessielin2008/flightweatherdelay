@@ -64,7 +64,7 @@ assembler = VectorAssembler(
               ],
     outputCol="features")
 classifier = RandomForestClassifier(predictionCol="prediction")
-pipeline = Pipeline(stages=[ucInd, oInd, destInd,encoder, assembler,classifier])
+pipeline = Pipeline(stages=[ucInd, oInd, dInd,encoder, assembler,classifier])
 model = pipeline.fit(training)
 predictions = model.transform(test)
 predictions.head()
@@ -124,7 +124,7 @@ assembler = VectorAssembler(
     inputCols=["Month","Day","DayOfWeek","CRSDepHour","UniqueCarrierOHE","OriginOHE","DestOHE"],
     outputCol="features")
 lr = LogisticRegression(maxIter=10)
-pipeline = Pipeline(stages=[ucInd, oInd, destInd,encoder, assembler,lr])
+pipeline = Pipeline(stages=[ucInd, oInd, dInd,encoder, assembler,lr])
 
 # Fit the model
 lrModel = pipeline.fit(training)
